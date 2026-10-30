@@ -319,6 +319,18 @@ h1, h2, p { margin-top: 0; }
 .event-details .result-heading h2 { font-size: 12px; }
 .activity-retention { display: flex; align-items: flex-start; gap: 7px; padding-top: 11px; margin-top: 3px; color: #8c9c91; border-top: 1px solid #f0f1f4; font-size: 8px; line-height: 1.5; }
 .activity-retention svg { flex: 0 0 auto; }
+.login-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(ellipse at 50% 0, #eeecff 0, var(--canvas) 55%); }
+.login-card { width: min(100%, 390px); padding: 30px; background: #fff; border: 1px solid var(--line); border-radius: 15px; box-shadow: 0 18px 55px #26234512; }
+.login-mark { display: grid; place-items: center; width: 43px; height: 43px; margin-bottom: 25px; color: #fff; background: linear-gradient(145deg, #8b7ef7, #7061e6); border-radius: 13px; }
+.login-card h1 { margin: 0 0 7px; font-size: 25px; letter-spacing: -.7px; }
+.login-card > p { margin: 0 0 22px; color: #858999; font-size: 11px; line-height: 1.6; }
+.login-form { display: grid; gap: 10px; }
+.login-form > label { color: #55596a; font-size: 10px; font-weight: 700; }
+.login-input-wrap { display: flex; align-items: center; gap: 9px; height: 39px; padding: 0 11px; color: #9295a2; border: 1px solid #e8e9ee; border-radius: 7px; }
+.login-input-wrap:focus-within { border-color: #9c92ee; box-shadow: 0 0 0 3px #796cf11a; }
+.login-input-wrap input { width: 100%; min-width: 0; height: 100%; padding: 0; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: 12px; }
+.login-form .diagnose-button { margin-top: 3px; }
+.login-privacy { display: flex; align-items: center; gap: 6px; margin-top: 18px; color: #8c8f9e; font-size: 9px; }
 @media (min-width: 1500px) {
   .content-wrap { padding-right: 50px; padding-left: 50px; }
   .topbar { padding-right: 50px; padding-left: 50px; }

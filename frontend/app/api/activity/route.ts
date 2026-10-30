@@ -8,7 +8,7 @@ const hostedPreview = process.env.VERCEL === "1";
 async function forward(request: Request, method: "GET" | "DELETE") {
   if (hostedPreview) {
     return NextResponse.json(
-      { detail: "Activity history is stored on the PC and is unavailable in the UI-only hosted preview." },
+      { detail: "Activity history is stored on the shared PC. Open its Cloudflare Tunnel HTTPS link to view it." },
       { status: 503 },
     );
   }

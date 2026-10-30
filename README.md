@@ -14,10 +14,9 @@ processes, delete files, or change system settings.
   the API to `127.0.0.1` only.
 - `memory/activity_repository.py` stores throttled monitoring samples and
   consented diagnosis outcomes in a bounded local SQLite activity log.
-- `frontend/` contains the responsive Next.js dashboard, charts, and settings.
-  The browser connects directly to the monitoring API on the same PC, including
-  when the dashboard is hosted on Vercel. User-selected warning thresholds and
-  refresh preferences stay in browser local storage.
+- `frontend/` contains the responsive Next.js dashboard, charts, settings, and
+  same-origin API proxies. User-selected warning thresholds and refresh
+  preferences stay in browser local storage.
 - `config/settings.py` validates default monitoring configuration.
 - `tests/` covers settings validation, monitor behavior, and metrics responses.
 
@@ -67,42 +66,56 @@ npm run dev
 ```
 
 Open <http://localhost:3000>. The API listens at <http://127.0.0.1:8000>.
-The dashboard connects from your browser directly to the local API.
+The Next.js server proxies dashboard API requests to the local Python service.
 
-## Use the hosted website on any PC
+## Share one monitored PC over the internet
 
-Open <https://self-healing-agent-steel.vercel.app> on the PC you want to
-monitor, then start the Python API on that same PC:
+Visitors do not need Python, Node.js, or project requirements. Install and run
+the app only on the Windows PC that will be monitored and act as the shared
+host. That PC must stay powered on and connected for the dashboard to work.
+
+On the shared PC, start the Python API in one terminal:
 
 ```powershell
 python app.py
 ```
 
-The browser talks to `127.0.0.1:8000` on the computer where the website is
-open; metrics and activity history do not pass through Vercel. Allow local
-network access if the browser prompts. Keep the API bound to `127.0.0.1`; do
-not expose it to the internet.
-
-The API allows only the local development origins and the production Vercel
-site by default. To use a different deployment or custom domain, set
-`SHA_ALLOWED_ORIGINS` in the API process to a comma-separated list of exact
-origins (scheme and host, no paths), for example:
+In another terminal, build and start the Next.js site. Set the private access
+password before starting the production server:
 
 ```powershell
-$env:SHA_ALLOWED_ORIGINS = "https://dashboard.example.com"
-python app.py
+cd frontend
+npm run build
+$env:SHA_DASHBOARD_PASSWORD = Read-Host "Enter a unique password of at least 16 characters"
+npm start
 ```
 
-Do not use a wildcard origin.
+The Next.js server serves the website and proxies its API requests to the
+Python API at `127.0.0.1:8000`. Keep the Python API bound to localhost; do not
+open port 8000 on the router or expose it directly to the internet.
 
-## Vercel deployment
+To let users reach the shared PC from anywhere, install Cloudflare Tunnel
+(`cloudflared`) on the shared PC. In a third terminal, run:
 
-The Next.js frontend can be deployed from GitHub by importing the repository
-in Vercel and setting the **Root Directory** to `frontend`. Vercel detects the
-Next.js build automatically. The website itself is static with respect to PC
-data: each browser connects directly to its own PC's local API. Start that
-Python API on the PC being monitored as described above. No metrics API URL or
-secret belongs in Vercel environment variables.
+```powershell
+cloudflared tunnel --url http://localhost:3000
+```
+
+Use a unique random password (preferably 24 or more characters), keep it
+private, and give it only to intended users. The site requires sign-in, limits
+failed attempts, stores the session in an HTTP-only, secure cookie for 12
+hours, and provides a sign-out button. The public tunnel URL is temporary and changes
+when the tunnel restarts. For a stable URL and managed identity policies, use
+a named Cloudflare Tunnel with a domain and Cloudflare Access. Never expose
+port 8000 directly or publish the dashboard without its access password: it
+shows host metrics, process names, activity history, and diagnosis controls.
+The tunnel prints a temporary HTTPS URL; send that URL and the access password
+only to intended users. The Vercel deployment remains a UI-only preview and
+cannot read this shared PC's local API.
+
+The website shows metrics from the one shared Windows host, not from visitor
+computers. Monitoring individual visitors would require a local agent on each
+computer.
 
 ## Settings
 

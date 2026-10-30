@@ -36,7 +36,7 @@ export async function GET() {
 export async function POST(request: Request) {
   if (hostedPreview) {
     return NextResponse.json(
-      { detail: "AI diagnosis is unavailable in the UI-only hosted preview. Run the Python API locally." },
+      { detail: "AI diagnosis is unavailable in the Vercel UI-only preview. Open the shared PC's Cloudflare Tunnel HTTPS link." },
       { status: 503 },
     );
   }

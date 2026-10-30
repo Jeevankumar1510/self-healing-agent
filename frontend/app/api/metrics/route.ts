@@ -14,7 +14,7 @@ const allowedParameters = [
 export async function GET(request: Request) {
   if (hostedPreview) {
     return NextResponse.json(
-      { detail: "This hosted preview cannot access PC-local metrics. Run the Python API and dashboard locally to monitor this computer." },
+      { detail: "This Vercel UI-only preview cannot access the shared PC. Open the HTTPS link printed by the Cloudflare Tunnel running on the shared PC." },
       { status: 503 },
     );
   }

@@ -15,6 +15,7 @@ import {
   HardDrive,
   Info,
   LayoutDashboard,
+  LogOut,
   Menu,
   Monitor,
   Network,
@@ -45,7 +46,6 @@ import {
   Preferences,
   SystemMetrics,
 } from "@/lib/metrics";
-import { localAgentError, localAgentUrl } from "@/lib/local-agent";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 type NavItem = "Overview" | "Monitoring" | "Incident center" | "AI diagnosis" | "Activity log" | "Settings";
@@ -228,6 +228,17 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const signOut = async () => {
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) throw new Error(`Sign-out failed (${response.status}).`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not sign out.");
+      return;
+    }
+    window.location.replace("/login");
+  };
+
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const query = new URLSearchParams({
       interval: String(preferences.interval),
@@ -236,7 +247,7 @@ export default function Home() {
       disk_threshold: String(preferences.diskThreshold),
     });
     try {
-      const response = await fetch(localAgentUrl(`metrics?${query}`), { cache: "no-store", signal });
+      const response = await fetch(`/api/metrics?${query}`, { cache: "no-store", signal });
       const body: unknown = await response.json();
       if (!response.ok) {
         const detail = body && typeof body === "object" && "detail" in body
@@ -257,7 +268,7 @@ export default function Home() {
       ]);
     } catch (reason) {
       if (reason instanceof Error && reason.name === "AbortError") return;
-      setError(localAgentError(reason));
+      setError(reason instanceof Error ? reason.message : "Could not read system metrics.");
     } finally {
       setLoading(false);
     }
@@ -292,7 +303,7 @@ export default function Home() {
 
   const pageSubtitle: Record<NavItem, string> = {
     Overview: "A clear picture of your system, updated in real time.",
-    Monitoring: "Live resource measurements from this computer.",
+    Monitoring: "Live resource measurements from the shared PC.",
     "Incident center": "Review detected issues and their current status.",
     "AI diagnosis": "Evidence-led troubleshooting with explainable recommendations.",
     "Activity log": "Persistent local monitoring samples and diagnosis outcomes.",
@@ -310,7 +321,7 @@ export default function Home() {
 
         <div className="workspace-switcher">
           <span className="device-icon"><Monitor size={16} /></span>
-          <span><strong>My computer</strong><small>Windows device</small></span>
+          <span><strong>Shared PC</strong><small>Windows host</small></span>
           <ChevronDown size={15} className="switch-chevron" />
         </div>
 
@@ -351,8 +362,9 @@ export default function Home() {
           <button className="mobile-menu icon-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
           <div className="breadcrumb"><span>Workspace</span><span className="crumb-slash">/</span><strong>{activeNav}</strong></div>
           <div className="topbar-right">
-            <span className="local-badge"><span className="live-dot" /> THIS PC · LOCAL AGENT</span>
+            <span className="local-badge"><span className="live-dot" /> SHARED PC · LOCAL AGENT</span>
             <button className="icon-button help-button" aria-label="Help"><CircleHelp size={18} /></button>
+            <button className="refresh-button" onClick={() => void signOut()}><LogOut size={15} /> Sign out</button>
             <div className="top-avatar">PC</div>
           </div>
         </header>
@@ -362,7 +374,7 @@ export default function Home() {
             <div>
               <div className="eyebrow"><span className="eyebrow-line" /> SYSTEM HEALTH</div>
               <h1>{activeNav === "Overview" ? "Good to see you." : activeNav}</h1>
-              <p>{activeNav === "Overview" && metrics ? `Your device is looking good. Here’s the latest from ${metrics.platform.split("-")[0]}.` : pageSubtitle[activeNav]}</p>
+              <p>{activeNav === "Overview" && metrics ? `The shared PC is looking good. Here’s the latest from ${metrics.platform.split("-")[0]}.` : pageSubtitle[activeNav]}</p>
             </div>
             <div className="heading-actions">
               <span className="last-updated">{metrics ? <>Updated <strong>{formatTime(metrics.captured_at)}</strong></> : "Waiting for metrics"}</span>
@@ -373,7 +385,7 @@ export default function Home() {
           {error ? (
             <div className="error-banner" role="alert">
               <span className="warning-icon"><AlertTriangle size={18} /></span>
-              <div><strong>Can’t connect to this PC’s local agent</strong><p>{error}</p><small>Start the Python API with <code>python app.py</code> on this PC and refresh.</small></div>
+              <div><strong>Can’t reach the shared PC’s local agent</strong><p>{error}</p><small>The shared PC must be online with the Python API running.</small></div>
               <button className="icon-button error-retry" onClick={() => void refresh()} aria-label="Retry"><RefreshCw size={16} /></button>
             </div>
           ) : null}
@@ -462,7 +474,7 @@ export default function Home() {
               </div>
 
               <footer className="dashboard-footer">
-                <span><ShieldCheck size={14} /> Your measurements stay on this computer.</span>
+                <span><ShieldCheck size={14} /> Measurements stay on the shared PC.</span>
                 <span>Self-Healing PC Agent <b>·</b> Phase 1 foundation</span>
               </footer>
             </>
@@ -569,14 +581,14 @@ function DiagnosisView() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(localAgentUrl("diagnosis/status"), { cache: "no-store", signal: controller.signal })
+    void fetch("/api/diagnosis", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Diagnosis status is unavailable.");
         setProvider(body as { configured: boolean; provider: string; model: string });
       })
       .catch((reason: unknown) => {
-        if (reason instanceof Error && reason.name !== "AbortError") setError(localAgentError(reason));
+        if (reason instanceof Error && reason.name !== "AbortError") setError(reason.message);
       });
     return () => controller.abort();
   }, []);
@@ -587,7 +599,7 @@ function DiagnosisView() {
     setError("");
     setPlan(null);
     try {
-      const response = await fetch(localAgentUrl("diagnosis"), {
+      const response = await fetch("/api/diagnosis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ problem_description: description, consent_to_send: consent }),
@@ -601,7 +613,7 @@ function DiagnosisView() {
       }
       setPlan(body as DiagnosisPlan);
     } catch (reason) {
-      setError(localAgentError(reason));
+      setError(reason instanceof Error ? reason.message : "Could not generate a diagnosis.");
     } finally {
       setLoading(false);
     }
@@ -713,7 +725,7 @@ function ActivityLogView() {
   const loadEvents = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
-      const response = await fetch(localAgentUrl("activity?limit=100"), { cache: "no-store", signal });
+      const response = await fetch("/api/activity?limit=100", { cache: "no-store", signal });
       const body: unknown = await response.json();
       if (!response.ok) {
         const detail = body && typeof body === "object" && "detail" in body
@@ -729,7 +741,7 @@ function ActivityLogView() {
       setError("");
     } catch (reason) {
       if (reason instanceof Error && reason.name !== "AbortError") {
-        setError(localAgentError(reason));
+        setError(reason.message);
       }
     } finally {
       setLoading(false);
@@ -750,7 +762,7 @@ function ActivityLogView() {
     setClearing(true);
     setError("");
     try {
-      const response = await fetch(localAgentUrl("activity"), { method: "DELETE" });
+      const response = await fetch("/api/activity", { method: "DELETE" });
       const body: unknown = await response.json();
       if (!response.ok) {
         const detail = body && typeof body === "object" && "detail" in body
