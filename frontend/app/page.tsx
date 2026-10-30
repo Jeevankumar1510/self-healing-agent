@@ -45,6 +45,7 @@ import {
   Preferences,
   SystemMetrics,
 } from "@/lib/metrics";
+import { localAgentError, localAgentUrl } from "@/lib/local-agent";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 type NavItem = "Overview" | "Monitoring" | "Incident center" | "AI diagnosis" | "Activity log" | "Settings";
@@ -235,7 +236,7 @@ export default function Home() {
       disk_threshold: String(preferences.diskThreshold),
     });
     try {
-      const response = await fetch(`/api/metrics?${query}`, { cache: "no-store", signal });
+      const response = await fetch(localAgentUrl(`metrics?${query}`), { cache: "no-store", signal });
       const body: unknown = await response.json();
       if (!response.ok) {
         const detail = body && typeof body === "object" && "detail" in body
@@ -256,7 +257,7 @@ export default function Home() {
       ]);
     } catch (reason) {
       if (reason instanceof Error && reason.name === "AbortError") return;
-      setError(reason instanceof Error ? reason.message : "Could not read system metrics.");
+      setError(localAgentError(reason));
     } finally {
       setLoading(false);
     }
@@ -350,7 +351,7 @@ export default function Home() {
           <button className="mobile-menu icon-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
           <div className="breadcrumb"><span>Workspace</span><span className="crumb-slash">/</span><strong>{activeNav}</strong></div>
           <div className="topbar-right">
-            <span className="local-badge"><span className="live-dot" /> LOCAL &amp; PRIVATE</span>
+            <span className="local-badge"><span className="live-dot" /> THIS PC · LOCAL AGENT</span>
             <button className="icon-button help-button" aria-label="Help"><CircleHelp size={18} /></button>
             <div className="top-avatar">PC</div>
           </div>
@@ -372,7 +373,7 @@ export default function Home() {
           {error ? (
             <div className="error-banner" role="alert">
               <span className="warning-icon"><AlertTriangle size={18} /></span>
-              <div><strong>Can’t reach the local monitoring service</strong><p>{error}</p><small>Start the Python API with <code>python app.py</code> and refresh.</small></div>
+              <div><strong>Can’t connect to this PC’s local agent</strong><p>{error}</p><small>Start the Python API with <code>python app.py</code> on this PC and refresh.</small></div>
               <button className="icon-button error-retry" onClick={() => void refresh()} aria-label="Retry"><RefreshCw size={16} /></button>
             </div>
           ) : null}
@@ -559,7 +560,7 @@ function CollectionNotes({ messages }: { messages: string[] }) {
 }
 
 function DiagnosisView() {
-  const [provider, setProvider] = useState<{ configured: boolean; provider: string; model: string; hosted_preview?: boolean } | null>(null);
+  const [provider, setProvider] = useState<{ configured: boolean; provider: string; model: string } | null>(null);
   const [description, setDescription] = useState("");
   const [consent, setConsent] = useState(false);
   const [plan, setPlan] = useState<DiagnosisPlan | null>(null);
@@ -568,14 +569,14 @@ function DiagnosisView() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/diagnosis", { cache: "no-store", signal: controller.signal })
+    void fetch(localAgentUrl("diagnosis/status"), { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Diagnosis status is unavailable.");
         setProvider(body as { configured: boolean; provider: string; model: string });
       })
       .catch((reason: unknown) => {
-        if (reason instanceof Error && reason.name !== "AbortError") setError(reason.message);
+        if (reason instanceof Error && reason.name !== "AbortError") setError(localAgentError(reason));
       });
     return () => controller.abort();
   }, []);
@@ -586,7 +587,7 @@ function DiagnosisView() {
     setError("");
     setPlan(null);
     try {
-      const response = await fetch("/api/diagnosis", {
+      const response = await fetch(localAgentUrl("diagnosis"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ problem_description: description, consent_to_send: consent }),
@@ -600,7 +601,7 @@ function DiagnosisView() {
       }
       setPlan(body as DiagnosisPlan);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not generate a diagnosis.");
+      setError(localAgentError(reason));
     } finally {
       setLoading(false);
     }
@@ -617,9 +618,7 @@ function DiagnosisView() {
         </div>
         {!provider?.configured && provider ? (
           <div className="provider-setup">
-            {provider.hosted_preview
-              ? "AI diagnosis requires the Python backend running locally on the computer being monitored."
-              : <>Set <code>OPENAI_API_KEY</code> in the environment where the Python API runs, then restart it. The key is used only by the local Python backend and is never sent to this browser.</>}
+            <>Set <code>OPENAI_API_KEY</code> in the environment where the Python API runs, then restart it. The key is used only by the local Python backend and is never sent to this browser.</>
           </div>
         ) : null}
         <form className="diagnosis-form" onSubmit={runDiagnosis}>
@@ -714,7 +713,7 @@ function ActivityLogView() {
   const loadEvents = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
-      const response = await fetch("/api/activity?limit=100", { cache: "no-store", signal });
+      const response = await fetch(localAgentUrl("activity?limit=100"), { cache: "no-store", signal });
       const body: unknown = await response.json();
       if (!response.ok) {
         const detail = body && typeof body === "object" && "detail" in body
@@ -730,7 +729,7 @@ function ActivityLogView() {
       setError("");
     } catch (reason) {
       if (reason instanceof Error && reason.name !== "AbortError") {
-        setError(reason.message);
+        setError(localAgentError(reason));
       }
     } finally {
       setLoading(false);
@@ -751,7 +750,7 @@ function ActivityLogView() {
     setClearing(true);
     setError("");
     try {
-      const response = await fetch("/api/activity", { method: "DELETE" });
+      const response = await fetch(localAgentUrl("activity"), { method: "DELETE" });
       const body: unknown = await response.json();
       if (!response.ok) {
         const detail = body && typeof body === "object" && "detail" in body

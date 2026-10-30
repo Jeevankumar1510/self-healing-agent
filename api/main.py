@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psutil
 
@@ -27,6 +30,30 @@ app = FastAPI(
     title="Self-Healing PC Agent API",
     description="Local, read-only host metrics for the dashboard.",
     version="0.2.0",
+)
+_default_frontend_origins = (
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://self-healing-agent-steel.vercel.app",
+)
+_configured_origins = os.getenv("SHA_ALLOWED_ORIGINS")
+allowed_origins = (
+    [origin.strip().rstrip("/") for origin in _configured_origins.split(",") if origin.strip()]
+    if _configured_origins is not None
+    else list(_default_frontend_origins)
+)
+if not allowed_origins or "*" in allowed_origins:
+    raise RuntimeError("SHA_ALLOWED_ORIGINS must contain one or more explicit frontend origins; wildcards are not allowed.")
+for origin in allowed_origins:
+    parsed_origin = urlsplit(origin)
+    if parsed_origin.scheme not in {"http", "https"} or not parsed_origin.netloc or parsed_origin.path:
+        raise RuntimeError(f"Invalid frontend origin in SHA_ALLOWED_ORIGINS: {origin}")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type"],
+    allow_private_network=True,
 )
 monitor = SystemMonitor()
 activity_repository = ActivityRepository()

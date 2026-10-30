@@ -48,6 +48,37 @@ def test_health_endpoint_reports_local_service() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_cors_allows_configured_hosted_dashboard_origin() -> None:
+    origin = "https://self-healing-agent-steel.vercel.app"
+
+    response = client.options(
+        "/api/metrics",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Private-Network": "true",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+    assert response.headers["access-control-allow-private-network"] == "true"
+
+
+def test_cors_rejects_unconfigured_frontend_origin() -> None:
+    response = client.options(
+        "/api/activity",
+        headers={
+            "Origin": "https://untrusted.example",
+            "Access-Control-Request-Method": "DELETE",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
 def test_metrics_endpoint_returns_real_monitor_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(main.monitor, "collect", lambda **kwargs: _snapshot())
 
