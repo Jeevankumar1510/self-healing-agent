@@ -3,8 +3,12 @@
 A local Windows system-health dashboard and a foundation for a carefully
 controlled diagnostics assistant. The current implementation is **Phase 1**:
 real, read-only host monitoring with a Next.js web frontend and a local Python
-metrics API. It does not install packages on the monitored system, terminate
-processes, delete files, or change system settings.
+metrics API. It does not terminate processes, delete files, or change system
+settings.
+
+The hosted website can provide individual invited accounts with password
+sign-in and required authenticator-app MFA. Browser-only mode cannot read
+device CPU, memory, processes, disks, or OS health; those require a local agent.
 
 ## Architecture
 
@@ -62,60 +66,76 @@ Terminal 2 — Next.js frontend:
 
 ```powershell
 cd frontend
+$env:NEXT_PUBLIC_SUPABASE_URL = "https://YOUR-PROJECT.supabase.co"
+$env:NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "YOUR-PUBLISHABLE-KEY"
 npm run dev
 ```
 
-Open <http://localhost:3000>. The API listens at <http://127.0.0.1:8000>.
-The Next.js server proxies dashboard API requests to the local Python service.
+Create/configure the Supabase project first (see below); the app fails closed
+without these public project settings. Open <http://localhost:3000>. The API
+listens at <http://127.0.0.1:8000>. The Next.js server proxies dashboard API
+requests to the local Python service.
 
-## Share one monitored PC over the internet
+## Hosted accounts and MFA
 
-Visitors do not need Python, Node.js, or project requirements. Install and run
-the app only on the Windows PC that will be monitored and act as the shared
-host. That PC must stay powered on and connected for the dashboard to work.
+The frontend supports individual invited Supabase accounts. Each person uses
+their own email/password and enrolls a TOTP authenticator app; the server-side
+Next.js proxy requires a Supabase `aal2` session before serving the dashboard
+or API routes. The app enrolls and challenges TOTP factors; disable other
+MFA methods in Supabase so TOTP is the only available second factor. Public
+sign-up is not part of the app; invite users from the Supabase dashboard.
 
-On the shared PC, start the Python API in one terminal:
+1. Create a Supabase project on its free plan. In **Authentication → Providers
+   → Email**, disable public sign-ups. In **Authentication → Multi-Factor
+   Authentication**, allow authenticator/TOTP and disable SMS/phone factors.
+2. Set the Supabase **Site URL** to the deployed website. Add these allowed
+   redirect URLs:
+   `https://YOUR-VERCEL-DOMAIN/auth/callback` and
+   `http://localhost:3000/auth/callback`.
+3. Configure custom SMTP before inviting people outside the Supabase
+   organization. The built-in mailer is best-effort, limited, and does not
+   deliver to arbitrary external users. Gmail SMTP uses `smtp.gmail.com` on
+   port `465` (SSL) or `587` (STARTTLS), with the Gmail address and a Google
+   App Password. Google requires 2-Step Verification for App Passwords;
+   whether a personal Gmail sender will be accepted and deliver reliably is
+   not guaranteed. A dedicated transactional sender with a verified domain
+   and SPF/DKIM is preferred. Never put an SMTP/App Password in the frontend,
+   Vercel variables, or Git; enter it only in Supabase's SMTP settings.
+4. In Supabase email templates, use token-hash callback links:
 
-```powershell
-python app.py
-```
+   Invite:
 
-In another terminal, build and start the Next.js site. Set the private access
-password before starting the production server:
+   ```html
+   <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password">Accept invitation</a>
+   ```
 
-```powershell
-cd frontend
-npm run build
-$env:SHA_DASHBOARD_PASSWORD = Read-Host "Enter a unique password of at least 16 characters"
-npm start
-```
+   Password recovery:
 
-The Next.js server serves the website and proxies its API requests to the
-Python API at `127.0.0.1:8000`. Keep the Python API bound to localhost; do not
-open port 8000 on the router or expose it directly to the internet.
+   ```html
+   <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password">Reset password</a>
+   ```
 
-To let users reach the shared PC from anywhere, install Cloudflare Tunnel
-(`cloudflared`) on the shared PC. In a third terminal, run:
+5. In Vercel, set `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, then redeploy. These are public
+   project settings; never add a Supabase service-role/secret key to Vercel
+   frontend variables. If Vercel is connected to GitHub, push the app changes
+   and Vercel will build the new deployment after the variables are set.
+6. Invite each email from Supabase **Authentication → Users**. The user follows
+   the email link, chooses their own password, and enrolls an authenticator
+   app. Sign-in requires their individual password and current TOTP code.
 
-```powershell
-cloudflared tunnel --url http://localhost:3000
-```
+Free Supabase projects have usage quotas and may pause after inactivity; check
+the current [Supabase pricing](https://supabase.com/pricing) and
+[production guidance](https://supabase.com/docs/guides/deployment/going-into-prod).
 
-Use a unique random password (preferably 24 or more characters), keep it
-private, and give it only to intended users. The site requires sign-in, limits
-failed attempts, stores the session in an HTTP-only, secure cookie for 12
-hours, and provides a sign-out button. The public tunnel URL is temporary and changes
-when the tunnel restarts. For a stable URL and managed identity policies, use
-a named Cloudflare Tunnel with a domain and Cloudflare Access. Never expose
-port 8000 directly or publish the dashboard without its access password: it
-shows host metrics, process names, activity history, and diagnosis controls.
-The tunnel prints a temporary HTTPS URL; send that URL and the access password
-only to intended users. The Vercel deployment remains a UI-only preview and
-cannot read this shared PC's local API.
+## What browser-only mode can monitor
 
-The website shows metrics from the one shared Windows host, not from visitor
-computers. Monitoring individual visitors would require a local agent on each
-computer.
+A website opened in a browser cannot inspect the computer's CPU utilization,
+memory use, running processes, disk volumes, or operating-system health. The
+hosted dashboard displays this limitation instead of fabricating readings.
+Full device monitoring requires a small local agent on each computer being
+monitored; people who only open the website do not install an agent, but
+browser-only access is not PC health monitoring.
 
 ## Settings
 

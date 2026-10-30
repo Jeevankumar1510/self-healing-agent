@@ -46,6 +46,7 @@ import {
   Preferences,
   SystemMetrics,
 } from "@/lib/metrics";
+import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 type NavItem = "Overview" | "Monitoring" | "Incident center" | "AI diagnosis" | "Activity log" | "Settings";
@@ -230,8 +231,9 @@ export default function Home() {
 
   const signOut = async () => {
     try {
-      const response = await fetch("/api/auth/logout", { method: "POST" });
-      if (!response.ok) throw new Error(`Sign-out failed (${response.status}).`);
+      const supabase = createSupabaseClient();
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) throw signOutError;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not sign out.");
       return;
@@ -302,12 +304,12 @@ export default function Home() {
   );
 
   const pageSubtitle: Record<NavItem, string> = {
-    Overview: "A clear picture of your system, updated in real time.",
-    Monitoring: "Live resource measurements from the shared PC.",
-    "Incident center": "Review detected issues and their current status.",
-    "AI diagnosis": "Evidence-led troubleshooting with explainable recommendations.",
-    "Activity log": "Persistent local monitoring samples and diagnosis outcomes.",
-    Settings: "Tune your local monitoring experience.",
+    Overview: "Browser-only mode cannot inspect this computer’s hardware.",
+    Monitoring: "Full system readings require a small local agent.",
+    "Incident center": "Hardware warnings are unavailable without a local agent.",
+    "AI diagnosis": "System diagnosis requires measurements from a local agent.",
+    "Activity log": "Persistent device history requires a local agent.",
+    Settings: "Tune browser-side display preferences.",
   };
 
   return (
@@ -321,7 +323,7 @@ export default function Home() {
 
         <div className="workspace-switcher">
           <span className="device-icon"><Monitor size={16} /></span>
-          <span><strong>Shared PC</strong><small>Windows host</small></span>
+          <span><strong>Browser session</strong><small>Web-only access</small></span>
           <ChevronDown size={15} className="switch-chevron" />
         </div>
 
@@ -349,7 +351,7 @@ export default function Home() {
           </div>
           <div className="profile-row">
             <div className="avatar">PC</div>
-            <div className="profile-copy"><strong>Local device</strong><span>Personal workspace</span></div>
+            <div className="profile-copy"><strong>Signed-in user</strong><span>MFA protected</span></div>
             <span className="online-indicator" title="Local dashboard" />
           </div>
         </div>
@@ -362,7 +364,7 @@ export default function Home() {
           <button className="mobile-menu icon-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
           <div className="breadcrumb"><span>Workspace</span><span className="crumb-slash">/</span><strong>{activeNav}</strong></div>
           <div className="topbar-right">
-            <span className="local-badge"><span className="live-dot" /> SHARED PC · LOCAL AGENT</span>
+            <span className="local-badge"><span className="live-dot" /> SECURE · MFA</span>
             <button className="icon-button help-button" aria-label="Help"><CircleHelp size={18} /></button>
             <button className="refresh-button" onClick={() => void signOut()}><LogOut size={15} /> Sign out</button>
             <div className="top-avatar">PC</div>
@@ -372,12 +374,12 @@ export default function Home() {
         <div className="content-wrap">
           <div className="page-heading">
             <div>
-              <div className="eyebrow"><span className="eyebrow-line" /> SYSTEM HEALTH</div>
+              <div className="eyebrow"><span className="eyebrow-line" /> SELF-HEALING AGENT</div>
               <h1>{activeNav === "Overview" ? "Good to see you." : activeNav}</h1>
-              <p>{activeNav === "Overview" && metrics ? `The shared PC is looking good. Here’s the latest from ${metrics.platform.split("-")[0]}.` : pageSubtitle[activeNav]}</p>
+              <p>{activeNav === "Overview" && metrics ? `Here’s the latest system status from ${metrics.platform.split("-")[0]}.` : pageSubtitle[activeNav]}</p>
             </div>
             <div className="heading-actions">
-              <span className="last-updated">{metrics ? <>Updated <strong>{formatTime(metrics.captured_at)}</strong></> : "Waiting for metrics"}</span>
+              <span className="last-updated">{metrics ? <>Updated <strong>{formatTime(metrics.captured_at)}</strong></> : error ? "Metrics unavailable" : "Waiting for metrics"}</span>
               <button className="refresh-button" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh</button>
             </div>
           </div>
@@ -385,7 +387,7 @@ export default function Home() {
           {error ? (
             <div className="error-banner" role="alert">
               <span className="warning-icon"><AlertTriangle size={18} /></span>
-              <div><strong>Can’t reach the shared PC’s local agent</strong><p>{error}</p><small>The shared PC must be online with the Python API running.</small></div>
+              <div><strong>System metrics are unavailable</strong><p>{error}</p><small>A browser cannot read CPU, memory, processes, disks, or OS health. Full readings require a local agent on the monitored PC.</small></div>
               <button className="icon-button error-retry" onClick={() => void refresh()} aria-label="Retry"><RefreshCw size={16} /></button>
             </div>
           ) : null}
@@ -395,7 +397,7 @@ export default function Home() {
           ) : activeNav === "Incident center" ? (
             <section className="section-card page-section">
               <SectionHeading icon={AlertTriangle} title="Incident center" description="Current threshold observations, plus confirmed incident records when detection is enabled." />
-              {metrics?.warnings.length ? <WarningList warnings={metrics.warnings} /> : <NoData icon={ShieldCheck} title="No active warnings" detail="Your current readings are within their configured warning thresholds." />}
+              {metrics?.warnings.length ? <WarningList warnings={metrics.warnings} /> : metrics ? <NoData icon={ShieldCheck} title="No active warnings" detail="Your current readings are within their configured warning thresholds." /> : <NoData icon={Monitor} title="No system readings" detail="Browser-only mode cannot inspect hardware. Connect a local agent to check for warnings." />}
               <div className="phase-note"><span className="phase-dot" /> Confirmed incident detection is planned for Phase 2. A single high reading is only a warning.</div>
             </section>
           ) : activeNav === "AI diagnosis" ? (
@@ -405,21 +407,21 @@ export default function Home() {
           ) : (
             <>
               {activeNav === "Monitoring" ? (
-                <div className="monitoring-banner"><Activity size={18} /><div><strong>Monitoring is active</strong><span>Read-only checks refresh every {preferences.interval} seconds. No background changes are made.</span></div><span className="active-pill"><span className="live-dot" /> LIVE</span></div>
+                <div className="monitoring-banner"><Activity size={18} /><div><strong>{metrics ? "Monitoring is active" : "Hardware monitoring is unavailable"}</strong><span>{metrics ? `Read-only checks refresh every ${preferences.interval} seconds. No background changes are made.` : "A local agent is required to read system hardware; this browser-only site cannot collect those metrics."}</span></div>{metrics ? <span className="active-pill"><span className="live-dot" /> LIVE</span> : null}</div>
               ) : null}
 
               {metrics?.warnings.length ? <WarningList warnings={metrics.warnings} compact /> : null}
 
               <section className="metric-grid" aria-label="System metrics">
-                <MetricCard title="CPU usage" value={metrics ? `${metrics.cpu_percent.toFixed(1)}%` : "—"} detail="Processor utilization" icon={Cpu} accent="violet" progress={metrics?.cpu_percent} />
-                <MetricCard title="Memory" value={metrics ? `${metrics.memory_percent.toFixed(1)}%` : "—"} detail={metrics ? `${formatBytes(metrics.memory_used_bytes)} of ${formatBytes(metrics.memory_total_bytes)}` : "Measuring available memory"} icon={Database} accent="blue" progress={metrics?.memory_percent} />
-                <MetricCard title="Disk space" value={minDisk ? `${minDisk.free_percent.toFixed(1)}%` : "—"} detail={minDisk ? `${formatBytes(minDisk.free_bytes)} free on ${minDisk.mountpoint}` : "Available storage"} icon={HardDrive} accent="mint" progress={minDisk ? 100 - minDisk.free_percent : undefined} footer={minDisk ? `${formatBytes(minDisk.total_bytes)} total` : "Awaiting disk data"} />
-                <MetricCard title="System uptime" value={metrics ? formatUptime(metrics.uptime_seconds) : "—"} detail="Since last system start" icon={Clock3} accent="amber" footer={metrics ? `Python ${metrics.python_version}` : "Runtime details"} />
+                <MetricCard title="CPU usage" value={metrics ? `${metrics.cpu_percent.toFixed(1)}%` : "—"} detail="Processor utilization" icon={Cpu} accent="violet" progress={metrics?.cpu_percent} footer={metrics ? "Live measurement" : "Unavailable in browser-only mode"} />
+                <MetricCard title="Memory" value={metrics ? `${metrics.memory_percent.toFixed(1)}%` : "—"} detail={metrics ? `${formatBytes(metrics.memory_used_bytes)} of ${formatBytes(metrics.memory_total_bytes)}` : "Memory utilization"} icon={Database} accent="blue" progress={metrics?.memory_percent} footer={metrics ? "Live measurement" : "Unavailable in browser-only mode"} />
+                <MetricCard title="Disk space" value={minDisk ? `${minDisk.free_percent.toFixed(1)}%` : "—"} detail={minDisk ? `${formatBytes(minDisk.free_bytes)} free on ${minDisk.mountpoint}` : "Available storage"} icon={HardDrive} accent="mint" progress={minDisk ? 100 - minDisk.free_percent : undefined} footer={minDisk ? `${formatBytes(minDisk.total_bytes)} total` : "Unavailable in browser-only mode"} />
+                <MetricCard title="System uptime" value={metrics ? formatUptime(metrics.uptime_seconds) : "—"} detail="Since last system start" icon={Clock3} accent="amber" footer={metrics ? `Python ${metrics.python_version}` : "Unavailable in browser-only mode"} />
               </section>
 
               <div className="dashboard-columns">
                 <section className="section-card chart-card">
-                  <SectionHeading icon={Activity} title="Resource usage" description="Live CPU and memory utilization" trailing={<span className="chart-period"><span className="live-dot" /> LIVE</span>} />
+                  <SectionHeading icon={Activity} title="Resource usage" description="CPU and memory utilization" trailing={metrics ? <span className="chart-period"><span className="live-dot" /> LIVE</span> : <span className="chart-period">UNAVAILABLE</span>} />
                   <div className="chart-legend"><span><i className="legend-dot cpu-legend" /> CPU</span><span><i className="legend-dot memory-legend" /> Memory</span></div>
                   {samples.length > 1 ? (
                     <div className="chart-wrap">
@@ -438,8 +440,8 @@ export default function Home() {
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
-                  ) : <div className="chart-placeholder"><div className="chart-placeholder-icon"><Activity size={21} /></div><strong>Building your resource timeline</strong><span>Measurements appear here as the monitor samples your system.</span><div className="skeleton-chart"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></div>}
-                  <div className="chart-footnote"><span><span className="live-dot" /> Sampling every {preferences.interval}s</span><span>{samples.length} {samples.length === 1 ? "sample" : "samples"} in this session</span></div>
+                  ) : <div className="chart-placeholder"><div className="chart-placeholder-icon"><Activity size={21} /></div><strong>Resource timeline unavailable</strong><span>Browser-only mode cannot collect CPU or memory measurements.</span></div>}
+                  <div className="chart-footnote"><span>{metrics ? <>Sampling every {preferences.interval}s</> : "Requires a local agent"}</span><span>{samples.length} {samples.length === 1 ? "sample" : "samples"} in this session</span></div>
                 </section>
 
                 <section className="section-card health-card">
@@ -448,7 +450,7 @@ export default function Home() {
                     <div className={`health-ring ${metrics?.warnings.length ? "ring-warning" : ""}`}>
                       <div><span>{metrics ? (metrics.warnings.length ? "!" : "OK") : "—"}</span><small>{metrics?.warnings.length ? "ATTENTION" : "STATUS"}</small></div>
                     </div>
-                    <div className="health-copy"><strong>{metrics ? (metrics.warnings.length ? "Needs a closer look" : "Everything looks good") : "Collecting readings"}</strong><span>{metrics ? `${metrics.warnings.length} current warning${metrics.warnings.length === 1 ? "" : "s"} · No fixes will run automatically` : "Waiting for the local metrics service"}</span></div>
+                    <div className="health-copy"><strong>{metrics ? (metrics.warnings.length ? "Needs a closer look" : "Everything looks good") : "System status unavailable"}</strong><span>{metrics ? `${metrics.warnings.length} current warning${metrics.warnings.length === 1 ? "" : "s"} · No fixes will run automatically` : "Browser-only mode cannot read the monitored computer."}</span></div>
                   </div>
                   <div className="signal-list">
                     <SignalRow icon={Cpu} label="Processor" value={metrics ? `${metrics.cpu_percent.toFixed(0)}%` : "—"} status={metrics && metrics.cpu_percent >= preferences.cpuThreshold ? "warning" : metrics ? "good" : "pending"} />
@@ -474,7 +476,7 @@ export default function Home() {
               </div>
 
               <footer className="dashboard-footer">
-                <span><ShieldCheck size={14} /> Measurements stay on the shared PC.</span>
+                <span><ShieldCheck size={14} /> Browser-only mode does not read hardware measurements.</span>
                 <span>Self-Healing PC Agent <b>·</b> Phase 1 foundation</span>
               </footer>
             </>

@@ -5,6 +5,9 @@ out/
 __pycache__/
 .pytest_cache/
 .env
+.env.*
+!.env.example
+frontend/.env.local
 *.py[cod]
 *.log
 data/

@@ -14,7 +14,7 @@ const allowedParameters = [
 export async function GET(request: Request) {
   if (hostedPreview) {
     return NextResponse.json(
-      { detail: "This Vercel UI-only preview cannot access the shared PC. Open the HTTPS link printed by the Cloudflare Tunnel running on the shared PC." },
+      { detail: "Browser-only mode cannot read this computer's CPU, memory, processes, or disk. Full system monitoring requires a small local agent on the computer being monitored." },
       { status: 503 },
     );
   }

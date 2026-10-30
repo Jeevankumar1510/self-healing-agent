@@ -1,37 +1,74 @@
+import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
-import { isValidSessionToken, SESSION_COOKIE } from "@/lib/auth";
+import { hasMfaAssurance } from "@/lib/supabase/claims";
 
-export function proxy(request: NextRequest) {
-  if (process.env.VERCEL === "1" || process.env.NODE_ENV !== "production") {
-    return NextResponse.next();
-  }
+const publicPaths = new Set(["/login", "/auth/callback"]);
+const lowerAssurancePaths = new Set(["/mfa", "/set-password"]);
 
-  const password = process.env.SHA_DASHBOARD_PASSWORD;
-  if (!password || password.length < 16) {
+function copyCookies(source: NextResponse, destination: NextResponse): NextResponse {
+  source.cookies.getAll().forEach((cookie) => destination.cookies.set(cookie));
+  return destination;
+}
+
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) {
+    if (publicPaths.has(pathname)) return NextResponse.next();
     return new NextResponse(
-      "The shared dashboard is locked. Configure SHA_DASHBOARD_PASSWORD with a passphrase of at least 16 characters, then restart the web server.",
+      "Authentication is not configured. Set the Supabase project URL and publishable key, then redeploy.",
       { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } },
     );
   }
 
-  const path = request.nextUrl.pathname;
-  if (path === "/login" || path === "/api/auth/login") {
-    return NextResponse.next();
+  let response = NextResponse.next({ request });
+  const supabase = createServerClient(url, key, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+      },
+    },
+  });
+
+  const { data, error } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (error && !publicPaths.has(pathname)) {
+    if (pathname.startsWith("/api/")) {
+      return copyCookies(response, NextResponse.json({ detail: "Could not verify the sign-in session." }, { status: 503 }));
+    }
+    return copyCookies(response, NextResponse.redirect(new URL("/login?error=session", request.url)));
   }
 
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (isValidSessionToken(token, password)) {
-    return NextResponse.next();
+  if (publicPaths.has(pathname)) return response;
+
+  if (!claims?.sub) {
+    if (pathname.startsWith("/api/")) {
+      return copyCookies(response, NextResponse.json({ detail: "Sign in to continue." }, { status: 401 }));
+    }
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", pathname);
+    return copyCookies(response, NextResponse.redirect(loginUrl));
   }
 
-  if (path.startsWith("/api/")) {
-    return NextResponse.json({ detail: "Sign in to use the shared PC dashboard." }, { status: 401 });
+  const completedMfa = hasMfaAssurance(claims);
+  if (pathname === "/mfa" && completedMfa) {
+    return copyCookies(response, NextResponse.redirect(new URL("/", request.url)));
   }
 
-  const loginUrl = request.nextUrl.clone();
-  loginUrl.pathname = "/login";
-  loginUrl.search = "";
-  return NextResponse.redirect(loginUrl);
+  if (!completedMfa && !lowerAssurancePaths.has(pathname)) {
+    if (pathname.startsWith("/api/")) {
+      return copyCookies(response, NextResponse.json({ detail: "Complete authenticator MFA to continue." }, { status: 403 }));
+    }
+    return copyCookies(response, NextResponse.redirect(new URL("/mfa", request.url)));
+  }
+
+  return response;
 }
 
 export const config = {
